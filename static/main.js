@@ -74,9 +74,25 @@ async function sendMessage() {
         return;
     }
 
-    if (!currentChatId) {
-        alert("Please start a new chat first!");
-        return;
+    if (!currentChatId || !activeChats.has(currentChatId)) {
+        try {
+            const response = await fetch("/new-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    api_key: apiKeyInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            currentChatId = data.chat_id;
+            activeChats.set(currentChatId, []);
+            updateChatDropdown();
+            chatDropdown.value = currentChatId;
+        } catch (error) {
+            console.error("Error creating new chat:", error);
+            alert("Failed to create new chat. Please try again.");
+            return;
+        }
     }
 
     addMessage("user", userMessage);

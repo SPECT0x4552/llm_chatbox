@@ -36,9 +36,13 @@ def new_chat():
     conversations[chat_id] = {
         'messages': [],
         'created_at': datetime.now().isoformat(),
-        'last_updated': datetime.now().isoformat()
+        'last_updated': datetime.now().isoformat(),
+        'api_key': request.json.get('api_key')  # Store API key with the chat
     }
-    return jsonify({"chat_id": chat_id})
+    return jsonify({
+        "chat_id": chat_id,
+        "created_at": conversations[chat_id]['created_at']
+    })
 
 @app.route("/send-message", methods=["POST"])
 @require_api_key
