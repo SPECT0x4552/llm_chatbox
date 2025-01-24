@@ -9,7 +9,7 @@ include/
 pyvenv.cfg
 
 # Static files (optional, if you want to exclude these from Git)
-static/
+# static/
 
 # Ignore logs and temporary files
 *.log
