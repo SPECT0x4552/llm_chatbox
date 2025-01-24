@@ -119,7 +119,8 @@
         }
 
         input,
-        select {
+        select,
+        textarea {
             background: var(--bg-primary);
             color: var(--text-primary);
             border: 1px solid var(--text-secondary);
@@ -127,9 +128,20 @@
             border-radius: var(--border-radius);
             font-size: 14px;
             width: 100%;
+            font-family: inherit;
         }
 
-        input:focus {
+        textarea {
+            resize: none;
+            overflow-y: hidden;
+            min-height: 40px;
+            line-height: 1.5;
+            transition: height 0.2s;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
             border-color: var(--accent);
         }
@@ -176,6 +188,104 @@
             animation-delay: 0.2s;
         }
 
+        /* Thought Process Styles */
+        .thought-container {
+            margin: 8px 0 16px 0;
+            border-left: 2px solid var(--accent);
+            background: var(--bg-primary);
+            border-radius: var(--border-radius);
+        }
+
+        .thought-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            padding: 8px 12px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .thought-toggle:hover {
+            color: var(--accent);
+            background: rgba(122, 162, 247, 0.1);
+        }
+
+        .thought-icon {
+            transition: transform 0.2s ease-in-out;
+        }
+
+        .thought-content {
+            display: none;
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .thought-content.visible {
+            display: block;
+        }
+
+        /* Code Block Styles */
+        .code-block {
+            margin: 16px 0;
+            background: var(--bg-primary);
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .code-language {
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .copy-button {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: auto;
+        }
+
+        .copy-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--text-primary);
+        }
+
+        pre code {
+            display: block;
+            padding: 16px;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            tab-size: 4;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
         @keyframes bounce {
 
             0%,
@@ -188,58 +298,23 @@
             }
         }
 
-        .code-block {
-            position: relative;
-            margin: 16px 0;
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
         }
 
-        pre code {
-            border-radius: var(--border-radius);
-            padding: 16px !important;
-            background: var(--bg-primary) !important;
-            font-size: 14px;
-        }
-
-        .copy-button {
-            position: absolute;
-            top: 8px;
-            right: 8px;
+        ::-webkit-scrollbar-track {
             background: var(--bg-secondary);
-            color: var(--text-secondary);
-            border: none;
-            padding: 6px 12px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--text-secondary);
             border-radius: 4px;
-            font-size: 12px;
-            opacity: 0;
-            transition: opacity 0.2s;
         }
 
-        .code-block:hover .copy-button {
-            opacity: 1;
-        }
-
-        .thought-content {
-            display: none;
-            background: var(--bg-primary);
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: var(--border-radius);
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .show-thought {
-            font-size: 12px;
-            color: var(--text-secondary);
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 4px 8px;
-            margin-top: 4px;
-        }
-
-        .show-thought:hover {
-            color: var(--accent);
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
         }
     </style>
 </head>
@@ -270,7 +345,8 @@
         </div>
 
         <div class="controls">
-            <input type="text" id="user-message" placeholder="Type your message..." />
+            <textarea id="user-message" placeholder="Type your message... (Shift+Enter for new line)"
+                rows="1"></textarea>
             <button id="send-btn">Send</button>
         </div>
     </div>
