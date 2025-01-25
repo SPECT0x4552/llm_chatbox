@@ -10,6 +10,7 @@ app = Flask(__name__)
 # Enhanced conversation store with timestamps and metadata
 conversations = {}
 
+
 def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -44,13 +45,54 @@ def new_chat():
         "created_at": conversations[chat_id]['created_at']
     })
 
+def process_message(message):
+    """Remove reasoning and metadata from messages."""
+    if not isinstance(message, dict) or 'content' not in message:
+        return message
+
+    # Skip processing for user messages
+    if message.get('role') == 'user':
+        return message
+
+    content = message['content']
+    
+    # Remove reasoning patterns
+    filtered_lines = []
+    skip_line = False
+    
+    for line in content.split('\n'):
+        # Skip lines with reasoning patterns
+        if any(pattern in line.lower() for pattern in [
+            'i can', 'i could', 'i should', 'i would', 'i will', 'i think',
+            'let me', "let's", 'alternatively', 'we can', 'we could',
+            'looks like', 'seems like', 'appears to be', 'might be',
+            'don\'t make assumptions', 'encourage them',
+            'they might', 'they may', 'they could',
+            'antthinking', 'reasoning', 'checking', 'verifying'
+        ]):
+            skip_line = True
+            continue
+
+        # Skip explanatory or meta-commentary lines
+        if line.strip().lower().startswith((
+            'okay', 'alright', 'now', 'here', 'well', 'so',
+            'first', 'next', 'then', 'finally'
+        )):
+            skip_line = True
+            continue
+
+        if not skip_line and line.strip():
+            filtered_lines.append(line)
+        skip_line = False
+
+    # Update the message content
+    message['content'] = '\n'.join(filtered_lines).strip()
+    return message
+
 @app.route("/send-message", methods=["POST"])
 @require_api_key
 def send_message():
-    """
-    Handles sending a user message to the DeepSeek-based model and 
-    returning the updated conversation.
-    """
+    """Handle sending a message to DeepSeek."""
     data = request.json
     chat_id = data.get("chat_id")
     user_message = data.get("user_message")
@@ -60,54 +102,46 @@ def send_message():
     if not chat_id or not user_message:
         return jsonify({"error": "Missing required fields"}), 400
 
-    # Create chat if it doesn't exist
     if chat_id not in conversations:
-        conversations[chat_id] = {
-            'messages': [],
-            'created_at': datetime.now().isoformat(),
-            'last_updated': datetime.now().isoformat()
-        }
-
-    # Update conversation
-    conversations[chat_id]['messages'].append({
-        "role": "user", 
-        "content": user_message
-    })
-    conversations[chat_id]['last_updated'] = datetime.now().isoformat()
-
-    # Configure OpenAI client for DeepSeek
-    openai.api_key = api_key
-    openai.api_base = "https://api.deepseek.com"
+        return jsonify({"error": "Chat not found"}), 404
 
     try:
-        # Make the API request to DeepSeek
+        # Configure OpenAI client for DeepSeek
+        openai.api_key = api_key
+        openai.api_base = "https://api.deepseek.com"
+
+        # Get current conversation
+        chat_messages = conversations[chat_id]['messages']
+
+        # Add user message
+        chat_messages.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        # Make API request
         response = openai.ChatCompletion.create(
             model=model_name,
-            messages=conversations[chat_id]['messages']
+            messages=chat_messages
         )
 
-        # Process the response
-        content = response.choices[0].message["content"]
-        reasoning_content = response.choices[0].message.get("reasoning_content", "")
+        # Process and add assistant's response
+        assistant_message = response.choices[0].message
+        processed_message = process_message(assistant_message)
+        
+        if processed_message and processed_message['content'].strip():
+            chat_messages.append(processed_message)
 
-        # Add the main response
-        conversations[chat_id]['messages'].append({
-            "role": "assistant", 
-            "content": content
-        })
-
-        # Add reasoning content if present
-        if reasoning_content:
-            conversations[chat_id]['messages'].append({
-                "role": "assistant_reasoning", 
-                "content": reasoning_content
-            })
+        # Update conversation timestamp
+        conversations[chat_id]['last_updated'] = datetime.now().isoformat()
 
         return jsonify({
-            "conversation": conversations[chat_id]['messages']
+            "conversation": [process_message(msg) if msg['role'] != 'user' else msg 
+                           for msg in chat_messages]
         })
+
     except Exception as e:
-        print(f"Error querying DeepSeek: {e}")
+        print(f"Error in send_message: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/list-chats", methods=["GET"])

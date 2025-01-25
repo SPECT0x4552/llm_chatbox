@@ -111,35 +111,78 @@ function updateChatDropdown() {
     }
 }
 
-// Message handling functions
-function formatCode(content) {
-    if (!content) return "";
+function removeReasoning(content) {
+    if (!content) return '';
 
-    // Handle thought process
-    if (content.includes("<antThinking>")) {
-        const thoughtMatch = content.match(/<antThinking>([\s\S]*?)<\/antThinking>/);
-        if (thoughtMatch) {
-            const thought = thoughtMatch[1].trim();
-            const restContent = content.replace(/<antThinking>[\s\S]*?<\/antThinking>/, '').trim();
+    // Split into lines and filter out reasoning/metadata
+    const lines = content.split('\n');
+    const filteredLines = lines.filter(line => {
+        const lowerLine = line.toLowerCase().trim();
 
-            return `
-                <div class="thought-container">
-                    <button class="thought-toggle" aria-expanded="false">
-                        <svg class="thought-icon" viewBox="0 0 20 20" width="16" height="16">
-                            <path d="M10 12l-6-6h12l-6 6z" fill="currentColor"/>
-                        </svg>
-                        View Reasoning Process
-                    </button>
-                    <div class="thought-content">
-                        ${formatThought(thought)}
-                    </div>
-                </div>
-                ${formatMessageContent(restContent)}
-            `;
+        // Skip empty lines
+        if (!lowerLine) return false;
+
+        // Skip reasoning patterns
+        const reasoningPatterns = [
+            'i can', 'i could', 'i should', 'i would', 'i will', 'i think',
+            'let me', "let's", 'alternatively', 'we can', 'we could',
+            'looks like', 'seems like', 'appears to be', 'might be',
+            'don\'t make', 'encourage', 'they might', 'they may', 'they could',
+            'antthinking', 'reasoning', 'checking', 'verifying'
+        ];
+
+        if (reasoningPatterns.some(pattern => lowerLine.includes(pattern))) {
+            return false;
         }
+
+        // Skip explanatory or meta-commentary lines
+        const skipPrefixes = [
+            'okay', 'alright', 'now', 'here', 'well', 'so',
+            'first', 'next', 'then', 'finally'
+        ];
+
+        if (skipPrefixes.some(prefix => lowerLine.startsWith(prefix))) {
+            return false;
+        }
+
+        return true;
+    });
+
+    return filteredLines.join('\n').trim();
+}
+
+function formatCode(content) {
+    // Remove reasoning first
+    const cleanContent = removeReasoning(content);
+
+    if (!cleanContent.includes('```')) {
+        return `<p>${cleanContent}</p>`;
     }
 
-    return formatMessageContent(content);
+    const segments = cleanContent.split(/(```[\s\S]*?```)/g);
+    return segments.map(segment => {
+        if (!segment.startsWith('```')) {
+            return segment.trim() ? `<p>${segment.trim()}</p>` : '';
+        }
+
+        const match = segment.match(/```(\w+)?\n([\s\S]*?)```/);
+        if (!match) return '';
+
+        const [_, lang, code] = match;
+        const sanitizedCode = code.trim()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        return `
+            <div class="code-block">
+                <div class="code-header">
+                    ${lang ? `<span class="code-language">${lang}</span>` : ''}
+                    <button class="copy-button" onclick="copyCode(this)">Copy Code</button>
+                </div>
+                <pre><code class="${lang ? `language-${lang}` : ''}">${sanitizedCode}</code></pre>
+            </div>`;
+    }).join('');
 }
 
 function formatThought(thought) {
@@ -305,19 +348,23 @@ function addMessage(role, content) {
 
     const messageContent = document.createElement("div");
     messageContent.classList.add("message-content");
-    messageContent.innerHTML = formatCode(content);
+
+    // Only process assistant messages
+    const processedContent = role === 'assistant' ? removeReasoning(content) : content;
+    messageContent.innerHTML = formatCode(processedContent);
 
     messageDiv.appendChild(messageContent);
     chatContainer.appendChild(messageDiv);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 
     // Highlight code blocks
-    messageDiv.querySelectorAll('pre code').forEach((block) => {
-        hljs.highlightBlock(block);
+    messageDiv.querySelectorAll('pre code').forEach(block => {
+        try {
+            hljs.highlightElement(block);
+        } catch (error) {
+            console.warn('Code highlighting failed:', error);
+        }
     });
-
-    // Setup thought toggles
-    setupThoughtToggles();
 }
 
 function renderConversation(messages) {
