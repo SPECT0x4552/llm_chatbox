@@ -1,200 +1,180 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, FormEvent } from 'react'
 
-type Message = {
+interface Message {
   role: string
   content: string
 }
 
-type ChatResponse = {
+interface ChatResponse {
   messages: Message[]
   reasoning_content: string | null
 }
 
-function App() {
+export default function App() {
+  // State
   const [apiKey, setApiKey] = useState('')
-  const [chatId, setChatId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('gpt-3.5-turbo')
-  const [userMessage, setUserMessage] = useState('')
+  const [chatId, setChatId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [userMessage, setUserMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Create a new chat on the Rust backend
-  const handleCreateChat = async () => {
+  // Create new chat
+  async function handleNewChat() {
     if (!apiKey.trim()) {
-      alert('Please enter your DeepSeek API key')
+      alert('Please enter your DeepSeek API key first.')
       return
     }
-
     try {
       setLoading(true)
-      const response = await fetch('http://localhost:3000/api/v1/chats', {
+      const res = await fetch('http://localhost:3000/api/v1/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey }),
+        body: JSON.stringify({ api_key: apiKey })
       })
-
-      if (!response.ok) {
-        throw new Error('Failed to create chat')
+      if (!res.ok) {
+        throw new Error(`Server responded with status ${res.status}`)
       }
-
-      const data = await response.json()
-      setChatId(data.id)
-      // A new chat typically starts empty
-      setMessages(data.messages ?? [])
-    } catch (error) {
-      console.error('Error creating chat:', error)
-      alert('Error creating chat. Check console for details.')
+      const chat = await res.json()
+      setChatId(chat.id)
+      setMessages(chat.messages || [])
+    } catch (err) {
+      console.error('Error creating chat:', err)
+      alert('Failed to create chat. Check console.')
     } finally {
       setLoading(false)
     }
   }
 
-  // Send a user message
-  const handleSendMessage = async () => {
+  // Send a new message
+  async function handleSend(e: FormEvent) {
+    e.preventDefault()
     if (!chatId) {
-      alert('Please create a chat first')
+      alert('No chatId yet. Please create a new chat first.')
       return
     }
-
     if (!userMessage.trim()) return
 
     try {
       setLoading(true)
-      const response = await fetch(`http://localhost:3000/api/v1/chats/${chatId}/messages`, {
+      const res = await fetch(`http://localhost:3000/api/v1/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_message: userMessage,
           api_key: apiKey,
-          model_name: modelName,
-        }),
+          model_name: modelName
+        })
       })
-
-      if (!response.ok) {
-        throw new Error('Failed to send message')
+      if (!res.ok) {
+        throw new Error(`Send failed. HTTP status ${res.status}`)
       }
-
-      const data: ChatResponse = await response.json()
+      const data: ChatResponse = await res.json()
       setMessages(data.messages)
       setUserMessage('')
-    } catch (error) {
-      console.error('Error sending message:', error)
-      alert('Error sending message. Check console for details.')
+    } catch (err) {
+      console.error('Error sending message:', err)
+      alert('Failed to send message.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 flex items-center justify-center">
-      <div className="w-full max-w-3xl">
-        <h1 className="text-3xl font-bold text-center mb-8">DeepSeek Chat</h1>
-
-        <div className="bg-white rounded shadow p-6">
-          {/* API Key + Create Chat row */}
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                DeepSeek API Key
-              </label>
-              <input
-                type="text"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="border border-gray-300 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your DeepSeek API key"
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                onClick={handleCreateChat}
-                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400"
-                disabled={loading}
-              >
-                {loading ? 'Creating...' : 'Create Chat'}
-              </button>
-            </div>
-          </div>
-
-          {/* Chat Info */}
-          {chatId && (
-            <div className="mb-4">
-              <p className="text-gray-600">
-                <span className="font-semibold">Chat ID:</span> {chatId}
-              </p>
-            </div>
-          )}
-
-          {/* Model + Message Input */}
-          {chatId && (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Model Name
-                </label>
-                <input
-                  type="text"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  className="border border-gray-300 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g. gpt-3.5-turbo"
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Your Message
-                </label>
-                <textarea
-                  value={userMessage}
-                  onChange={(e) => setUserMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  className="border border-gray-300 rounded w-full px-3 py-2 h-20 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Type your message..."
-                />
-              </div>
-
-              <button
-                onClick={handleSendMessage}
-                className="bg-green-600 text-white font-semibold py-2 px-4 rounded hover:bg-green-700 disabled:bg-gray-400"
-                disabled={loading}
-              >
-                {loading ? 'Sending...' : 'Send Message'}
-              </button>
-            </>
-          )}
-
-          {/* Conversation */}
-          {chatId && (
-            <div className="mt-6 border-t pt-4">
-              <h2 className="text-xl font-bold mb-3">Conversation</h2>
-              <div className="max-h-80 overflow-y-auto space-y-3">
-                {messages.map((msg, index) => (
-                  <div key={index} className="p-3 rounded bg-gray-50">
-                    <span
-                      className={`inline-block font-semibold mr-2 ${msg.role === 'assistant' ? 'text-blue-700' : 'text-gray-800'
-                        }`}
-                    >
-                      {msg.role === 'assistant' ? 'Assistant' : 'User'}:
-                    </span>
-                    <span className="text-gray-800">{msg.content}</span>
-                  </div>
-                ))}
-                {messages.length === 0 && (
-                  <p className="text-gray-500">No messages yet. Say something!</p>
-                )}
-              </div>
-            </div>
-          )}
+    <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+      {/* TOP BAR */}
+      <header className="bg-gray-800 p-4 flex items-center space-x-4">
+        {/* API Key Input */}
+        <div className="flex items-center space-x-2">
+          <label className="text-sm">API Key:</label>
+          <input
+            className="bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1 w-48 focus:outline-none"
+            placeholder="sk-..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
         </div>
-      </div>
+
+        {/* Model Input */}
+        <div className="flex items-center space-x-2">
+          <label className="text-sm">Model:</label>
+          <input
+            className="bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1 w-36 focus:outline-none"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
+          />
+        </div>
+
+        {/* New Chat Button */}
+        <button
+          onClick={handleNewChat}
+          disabled={loading}
+          className="ml-auto bg-gray-700 hover:bg-gray-600 text-sm px-4 py-2 rounded text-white"
+        >
+          {loading ? 'Creating...' : 'New Chat'}
+        </button>
+      </header>
+
+      {/* MAIN: Conversation */}
+      <main className="flex-1 overflow-y-auto p-4">
+        {!chatId && (
+          <div className="text-center text-gray-400 mt-10">
+            <h2 className="text-xl">No Chat Yet</h2>
+            <p className="mt-2">Enter your API key and click "New Chat" to begin.</p>
+          </div>
+        )}
+
+        {chatId && (
+          <div className="max-w-3xl mx-auto space-y-4">
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`p-3 rounded-md ${msg.role === 'assistant' ? 'bg-gray-800' : 'bg-gray-700'
+                  }`}
+              >
+                <div className="mb-1 font-semibold text-sm text-blue-400">
+                  {msg.role === 'assistant' ? 'Assistant' : 'User'}
+                </div>
+                {/* If you have code blocks or want reasoning toggles, you could parse msg.content here */}
+                <div className="whitespace-pre-wrap break-words">
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {messages.length === 0 && (
+              <p className="text-gray-500">No messages yet. Say something!</p>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* FOOTER: input to send messages */}
+      {chatId && (
+        <footer className="p-4 bg-gray-800">
+          <form onSubmit={handleSend} className="flex space-x-2 max-w-3xl mx-auto">
+            <textarea
+              className="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-gray-100 resize-none h-10 focus:outline-none"
+              placeholder="Type your message..."
+              value={userMessage}
+              onChange={(e) => setUserMessage(e.target.value)}
+              onKeyDown={(e) => {
+                // Send on Enter (without shift)
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend(e)
+                }
+              }}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded"
+            >
+              {loading ? 'Sending...' : 'Send'}
+            </button>
+          </form>
+        </footer>
+      )}
     </div>
   )
 }
-
-export default App
