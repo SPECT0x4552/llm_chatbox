@@ -1,67 +1,140 @@
-import React, { useState, FormEvent } from 'react'
+import React, { useState, useEffect, useRef, FormEvent } from 'react';
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css';
 
-// Example message shape
+// Import required syntax highlighting languages
+import 'prismjs/components/prism-c'; // Must come before cpp
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-nasm';
+
 interface Message {
-  role: string
-  content: string
-  reasoning?: string
+  role: string;
+  content: string;
+  reasoning?: string;
+  temp?: boolean;
 }
 
 interface ChatResponse {
-  messages: Message[]
-  reasoning_content: string | null
+  messages: Message[];
+  reasoning_content: string | null;
+}
+
+interface StoredChat {
+  messages: Message[];
+  created: number;
+  model: string;
 }
 
 export default function App() {
-  const [chatList, setChatList] = useState<string[]>([])
-  const [selectedChat, setSelectedChat] = useState<string | null>(null)
-  const [apiKey, setApiKey] = useState('')
-  const [modelName, setModelName] = useState('gpt-3.5-turbo')
-  const [messages, setMessages] = useState<Message[]>([])
-  const [userMessage, setUserMessage] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [chatList, setChatList] = useState<string[]>([]);
+  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [modelName, setModelName] = useState('deepseek-reasoner');
+  const [chats, setChats] = useState<{ [id: string]: StoredChat }>({});
+  const [userMessage, setUserMessage] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Create a new chat on the backend
-  async function handleNewChat() {
+  // Load persisted data
+  useEffect(() => {
+    const loadState = () => {
+      try {
+        const savedState = localStorage.getItem('chatState');
+        if (savedState) {
+          const state = JSON.parse(savedState);
+          setChatList(state.chatList || []);
+          setChats(state.chats || {});
+          setSelectedChat(state.selectedChat);
+          setApiKey(state.apiKey || '');
+          setModelName(state.modelName || 'gpt-3.5-turbo');
+        }
+      } catch (error) {
+        console.error('Failed to load state:', error);
+      }
+    };
+    loadState();
+  }, []);
+
+  // Persist all state changes
+  useEffect(() => {
+    const stateToSave = {
+      chatList,
+      chats,
+      selectedChat,
+      apiKey,
+      modelName
+    };
+    localStorage.setItem('chatState', JSON.stringify(stateToSave));
+  }, [chatList, chats, selectedChat, apiKey, modelName]);
+
+  // Scroll handling and syntax highlighting
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    Prism.highlightAll();
+  }, [chats[selectedChat || '']?.messages, isSending]);
+
+  const handleNewChat = async () => {
     if (!apiKey.trim()) {
-      alert('Please enter your DeepSeek API key first.')
-      return
+      alert('Please enter your API key first.');
+      return;
     }
+
     try {
-      setLoading(true)
+      setIsCreating(true);
       const res = await fetch('http://localhost:3000/api/v1/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey }),
-      })
-      if (!res.ok) {
-        throw new Error('Failed to create chat')
-      }
-      const chatData = await res.json()
-      const newChatId = chatData.id
+      });
 
-      setSelectedChat(newChatId)
-      setMessages(chatData.messages || [])
-      setChatList((prev) => [...prev, newChatId])
+      const chatData = await res.json();
+      const newChatId = chatData.id;
+      const timestamp = Date.now();
+
+      setChatList(prev => [...prev, newChatId]);
+      setChats(prev => ({
+        ...prev,
+        [newChatId]: {
+          messages: chatData.messages || [],
+          created: timestamp,
+          model: modelName
+        }
+      }));
+      setSelectedChat(newChatId);
     } catch (error) {
-      console.error('Error creating chat:', error)
-      alert('Error creating chat. Check the console.')
+      console.error('Error creating chat:', error);
+      alert('Error creating chat. Check console.');
     } finally {
-      setLoading(false)
+      setIsCreating(false);
     }
-  }
+  };
 
-  // Send a message
-  async function handleSend(e: FormEvent) {
-    e.preventDefault()
-    if (!selectedChat) {
-      alert('No chat selected. Please create a chat first.')
-      return
-    }
-    if (!userMessage.trim()) return
+  const handleSend = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedChat || !userMessage.trim()) return;
+
+    const tempId = Date.now().toString();
 
     try {
-      setLoading(true)
+      setIsSending(true);
+
+      // Optimistic update
+      setChats(prev => ({
+        ...prev,
+        [selectedChat]: {
+          ...prev[selectedChat],
+          messages: [
+            ...prev[selectedChat].messages,
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: '...', temp: true }
+          ]
+        }
+      }));
+
       const res = await fetch(`http://localhost:3000/api/v1/chats/${selectedChat}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,160 +143,185 @@ export default function App() {
           api_key: apiKey,
           model_name: modelName,
         }),
-      })
-      if (!res.ok) {
-        throw new Error(`Send failed with status ${res.status}`)
-      }
-      const data: ChatResponse = await res.json()
-      setMessages(data.messages)
-      setUserMessage('')
-    } catch (error) {
-      console.error('Error sending message:', error)
-      alert('Error sending message. Check the console.')
-    } finally {
-      setLoading(false)
-    }
-  }
+      });
 
-  // Optional: toggles for "reasoning" in each message
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
-  function toggleReasoning(index: number) {
-    setExpandedIdx(expandedIdx === index ? null : index)
-  }
+      const data: ChatResponse = await res.json();
+      setChats(prev => ({
+        ...prev,
+        [selectedChat]: {
+          ...prev[selectedChat],
+          messages: data.messages
+        }
+      }));
+      setUserMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // Rollback optimistic update
+      setChats(prev => ({
+        ...prev,
+        [selectedChat]: {
+          ...prev[selectedChat],
+          messages: prev[selectedChat].messages.filter(m => !m.temp)
+        }
+      }));
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const formatContent = (content: string) => {
+    return content.split('```').map((part, index) => {
+      if (index % 2 === 0) return part;
+
+      const [lang, ...code] = part.split('\n');
+      const language = lang.trim().toLowerCase();
+      const validLanguages = {
+        python: Prism.languages.python,
+        cpp: Prism.languages.cpp,
+        c: Prism.languages.c,
+        rust: Prism.languages.rust,
+        javascript: Prism.languages.javascript,
+        nasm: Prism.languages.nasm,
+        asm: Prism.languages.nasm,
+        assembly: Prism.languages.nasm
+      };
+
+      const selectedLang = validLanguages[language as keyof typeof validLanguages]
+        ? language
+        : 'javascript';
+
+      return `
+        <pre class="language-${selectedLang}">
+          <code>
+            ${Prism.highlight(
+        code.join('\n'),
+        validLanguages[selectedLang as keyof typeof validLanguages] || Prism.languages.javascript,
+        selectedLang
+      )}
+          </code>
+        </pre>
+      `;
+    }).join('\n');
+  };
 
   return (
     <div className="min-h-screen w-full bg-gray-900 text-gray-100 flex flex-col">
-      {/* 
-        1) We use a top-level dark background that fills the screen.
-        2) Then, we wrap the actual content in a Tailwind "container" with mx-auto.
-           That keeps the content centered on large screens, and fully responsive on smaller ones.
-      */}
+      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4">
+        {/* Header */}
+        <header className="py-6 border-b border-gray-700 sticky top-0 bg-gray-900/95 backdrop-blur z-10">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                DeepSeek Chat
+              </h1>
 
-      <div className="container mx-auto flex flex-col flex-1 px-4">
-        {/* HEADER ROW #1 */}
-        <header className="flex items-center py-2 bg-gray-800 shadow mt-4 rounded-md px-4">
-          <div className="text-xl font-bold mr-4">DeepSeek R3</div>
+              <button
+                onClick={handleNewChat}
+                disabled={isCreating}
+                className="ml-auto bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm disabled:opacity-50 
+                         transition-all duration-200 flex items-center gap-2 hover:scale-105"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                {isCreating ? 'Creating...' : 'New Chat'}
+              </button>
+            </div>
 
-          {/* Chat selector (if multiple chats) */}
-          <select
-            className="bg-gray-700 px-3 py-1 text-sm rounded focus:outline-none"
-            value={selectedChat || ''}
-            onChange={(e) => setSelectedChat(e.target.value)}
-          >
-            {selectedChat === null && <option value="">No chat selected</option>}
-            {chatList.map((chatId) => (
-              <option key={chatId} value={chatId}>
-                {chatId}
-              </option>
-            ))}
-          </select>
-
-          {/* New Chat button */}
-          <button
-            onClick={handleNewChat}
-            disabled={loading}
-            className="ml-auto bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm"
-          >
-            {loading ? 'Creating...' : 'New Chat'}
-          </button>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <input
+                className="w-full bg-gray-800 px-4 py-2 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="API Key: sk-..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <input
+                className="w-full sm:w-48 bg-gray-800 px-4 py-2 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Model"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+              />
+            </div>
+          </div>
         </header>
 
-        {/* HEADER ROW #2 */}
-        <div className="flex items-center p-3 bg-gray-800 mt-2 rounded-md space-x-2">
-          <input
-            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-64 focus:outline-none"
-            placeholder="API Key: sk-..."
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-          <input
-            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-44 focus:outline-none"
-            placeholder="Model (e.g. gpt-3.5-turbo)"
-            value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
-          />
-        </div>
-
-        {/* MAIN: conversation */}
-        <main className="flex-1 overflow-y-auto py-4">
-          {!selectedChat ? (
-            <div className="text-center text-gray-400 mt-10">
-              <h2 className="text-xl mb-2">No Chat Selected</h2>
-              <p>Enter your API key and click "New Chat" to begin.</p>
-            </div>
-          ) : (
-            <div className="flex flex-col space-y-4">
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`p-4 rounded ${msg.role === 'assistant' ? 'bg-gray-800' : 'bg-gray-700'
-                    }`}
-                >
-                  {/* Role + optional reasoning toggle */}
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-blue-400 font-semibold">
-                      {msg.role === 'assistant' ? 'Assistant' : 'User'}
-                    </span>
-                    {msg.reasoning && (
-                      <button
-                        onClick={() => toggleReasoning(idx)}
-                        className="text-sm text-gray-300 hover:underline"
-                      >
-                        {expandedIdx === idx ? 'Hide Reasoning' : 'Show Reasoning'}
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="whitespace-pre-wrap break-words">
-                    {msg.content}
-                  </div>
-
-                  {msg.reasoning && expandedIdx === idx && (
-                    <div className="mt-2 p-2 bg-gray-600 rounded">
-                      <h4 className="font-medium mb-1">Reasoning:</h4>
-                      <div className="text-sm whitespace-pre-wrap break-words">
-                        {msg.reasoning}
-                      </div>
-                    </div>
-                  )}
+        {/* Messages */}
+        <main className="flex-1 overflow-y-auto py-6 space-y-6">
+          {selectedChat && chats[selectedChat]?.messages?.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className={`max-w-[85%] rounded-xl p-4 transition-all duration-200 ${msg.role === 'user'
+                ? 'bg-blue-600/90 text-white'
+                : 'bg-gray-800/80'
+                }`}>
+                <div className="mb-2 text-sm font-medium">
+                  {msg.role === 'user' ? 'You' : 'Assistant'}
                 </div>
-              ))}
+                <div
+                  className="whitespace-pre-wrap break-words"
+                  dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }}
+                />
+              </div>
+            </div>
+          ))}
 
-              {messages.length === 0 && (
-                <p className="text-gray-500">No messages yet. Say something!</p>
-              )}
+          {isSending && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] bg-gray-800/80 rounded-xl p-4">
+                <div className="flex space-x-2">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+                </div>
+              </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </main>
 
-        {/* FOOTER: send user message */}
+        {/* Input Area */}
         {selectedChat && (
-          <footer className="bg-gray-800 p-3 mt-2 rounded-md">
-            <form onSubmit={handleSend} className="flex space-x-2 w-full">
-              <textarea
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 resize-none focus:outline-none h-12"
-                placeholder="Type your message..."
-                value={userMessage}
-                onChange={(e) => setUserMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  // Press Enter to send (unless Shift is held)
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSend(e)
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded"
-              >
-                {loading ? 'Sending...' : 'Send'}
-              </button>
+          <footer className="sticky bottom-0 bg-gray-900 pt-6 pb-8">
+            <form
+              onSubmit={handleSend}
+              className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-4 shadow-xl transition-all duration-200 hover:bg-gray-800/60"
+            >
+              <div className="flex gap-4 items-end">
+                <textarea
+                  className="flex-1 bg-gray-700/50 rounded-lg p-4 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="Type your message..."
+                  value={userMessage}
+                  onChange={(e) => setUserMessage(e.target.value)}
+                  rows={Math.min(4, userMessage.split('\n').length)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend(e);
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isSending}
+                  className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-lg text-sm disabled:opacity-50 h-fit transition-colors"
+                >
+                  {isSending ? 'Sending...' : 'Send'}
+                </button>
+              </div>
             </form>
           </footer>
         )}
+
+        {!selectedChat && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-gray-400 p-8 rounded-xl bg-gray-800/50">
+              <p className="text-lg">Create a new chat to get started</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
-  )
+  );
 }
